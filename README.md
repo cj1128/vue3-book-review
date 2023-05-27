@@ -146,3 +146,42 @@
     - 这两点处理了，那么 for of 就没问题了
   - 数组的查找方法
     - 需要覆盖原生的 `includes/indexOf/lastIndexOf` 方法
+  - 隐式修改数字长度的原型方法
+    - `push/pop/shift/unshift`
+    - 两个独立的副作用函数互相影响，这里的问题在于 `push` 隐式读取了 length，解决方案是阻止 `length` 读取和副作用函数之间建立联系
+      ```js
+      const arr = reactive([])
+
+      effect(() => {
+        arr.push(1)
+      })
+
+      effect(() => {
+        arr.push(2)
+      })
+      ```
+    - TODO: 注意，"互相影响”的问题其实并没有解决，如下的代码依旧会报错
+      ```js
+      const obj = reactive({id:1})
+
+      effect(() => {
+        obj.id++
+      })
+
+      effect(() => {
+        obj.id++
+      })
+      ```
+- 代理 Set 和 Map
+  - `size` 属性读取时要正确设置 this
+  - `add`/`delete` 这些方法需要重新实现，和数组一样
+  - 避免数据污染
+    - 把响应式数据设置到原始数据上的行为称为【数据污染】
+      - 准确来说应该是使用代理进行操作时，避免这种行为
+      - 因为用户永远都可以手动将响应式数据设置到原始数据上
+    - 这里其实是要维护一个统一的心智模型，即：只有使用代理（响应式数据）进行操作才可以获得响应性
+  - `forEach`
+    - 覆盖 forEach 方法
+      - 确保深响应，传递给 forEach 的参数需要进行响应性包装
+      - `SET` 操作也需要重新触发 `forEach`
+  - 迭代器方法：`entries`/`keys`/`values`

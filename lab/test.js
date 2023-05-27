@@ -6,27 +6,23 @@ import {
   shallowReactive,
   readonly,
   shallowReadonly,
-  bucket,
+  // bucket,
 } from "./proxy.js"
-// import { effect, watch, computed, reactive } from "vue"
+// } from "vue"
 
-// const obj = reactive({ foo: { bar: 1 } })
-const obj = {}
-const raw = [obj]
-const arr = reactive(raw)
+const p = reactive(new Map([["key1", "value1"]]))
 
 effect(() => {
-  console.log("=== track ==")
+  console.log("=== track ===")
+  const itr = p.entries()
 
-  console.log(arr.includes(1))
+  for (const item of itr) {
+    console.log(item)
+  }
+
+  // console.log(itr.next())
 })
 
-// console.log(bucket.get(raw))
+p.set("key2", "value2")
 
-arr.push(1)
-
-// // obj[0] = "foo"
-
-// obj.length = 3
-
-// obj.foo = { bar: 3 }
+// p.push(100)

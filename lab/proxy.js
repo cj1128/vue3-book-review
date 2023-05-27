@@ -2,9 +2,22 @@ export const bucket = new WeakMap()
 
 const ITERATE_KEY = Symbol()
 const RAW_KEY = Symbol()
+let shouldTrack = true
 
 function hasOwnProperty(target, key) {
   return Object.prototype.hasOwnProperty.call(target, key)
+}
+
+function isNotSame(a, b) {
+  const bothNotNaN = a === a && b === b
+  return a !== b && bothNotNaN
+}
+
+function wrap(val) {
+  return typeof val === "object" && val != null ? reactive(val) : val
+}
+function isMap(val) {
+  return Object.prototype.toString.call(val) === "[object Map]"
 }
 
 const arrayInstrumentations = {}
@@ -22,12 +35,109 @@ const arrayInstrumentations = {}
     return res
   }
 })
+;["push", "pop", "shift", "unshift", "splice"].forEach((method) => {
+  const originMethod = Array.prototype[method]
+  arrayInstrumentations[method] = function (...args) {
+    shouldTrack = false
+    const res = originMethod.apply(this, args)
+    shouldTrack = true
+    return res
+  }
+})
+
+const mutableInstrumentations = {
+  add(key) {
+    const target = this[RAW_KEY]
+    const had = target.has(key)
+    const res = target.add(key)
+    if (!had) {
+      trigger(target, key, TriggerType.ADD)
+    }
+    return res
+  },
+
+  delete(key) {
+    const target = this[RAW_KEY]
+    const had = target.has(key)
+    const res = target.delete(key)
+    if (had) {
+      trigger(target, key, TriggerType.DELETE)
+    }
+    return res
+  },
+
+  get(key) {
+    const target = this[RAW_KEY]
+    const had = target.has(key)
+    track(target, key)
+    if (had) {
+      const res = target.get(key)
+      return typeof res === "object" && res != null ? reactive(res) : res
+    }
+  },
+
+  set(key, value) {
+    const target = this[RAW_KEY]
+    const had = target.has(key)
+    const oldValue = target.get(key)
+    target.set(key, value[RAW_KEY] ?? value)
+    if (!had) {
+      trigger(target, key, TriggerType.ADD)
+    } else if (isNotSame(oldValue, value)) {
+      trigger(target, key, TriggerType.SET)
+    }
+  },
+
+  forEach(callback, thisArg) {
+    const target = this[RAW_KEY]
+    track(target, ITERATE_KEY)
+    target.forEach(function (value, key) {
+      callback.call(thisArg, wrap(value), wrap(key), this)
+    })
+  },
+
+  [Symbol.iterator]: iterationMethod,
+  entries: iterationMethod,
+}
+function iterationMethod() {
+  const target = this[RAW_KEY]
+  track(target, ITERATE_KEY)
+
+  const itr = target[Symbol.iterator]()
+
+  return {
+    next() {
+      const { value, done } = itr.next()
+      return {
+        value: value ? [wrap(value[0], wrap[value[1]])] : value,
+        done,
+      }
+    },
+
+    [Symbol.iterator]() {
+      return this
+    },
+  }
+}
 
 function createReactive(target, isShalow = false, isReadonly = false) {
   return new Proxy(target, {
     get(target, key, receiver) {
+      // console.log("read key", key)
       if (key === RAW_KEY) {
         return target
+      }
+
+      // set & map
+      {
+        if (key === "size") {
+          track(target, ITERATE_KEY)
+          return Reflect.get(target, key, target)
+        }
+
+        if (mutableInstrumentations.hasOwnProperty(key)) {
+          return Reflect.get(mutableInstrumentations, key, receiver)
+        }
       }
 
       if (Array.isArray(target) && arrayInstrumentations.hasOwnProperty(key)) {
@@ -68,8 +178,10 @@ function createReactive(target, isShalow = false, isReadonly = false) {
         : TriggerType.ADD
       const res = Reflect.set(target, key, value, receiver)
 
+      // 解决原型更新带来的问题
       if (target === receiver[RAW_KEY]) {
-        if (oldValue !== value && (oldValue === oldValue || value === value)) {
+        // 注意处理 NaN
+        if (isNotSame(oldValue, value)) {
           trigger(target, key, type, value)
         }
       }
@@ -137,7 +249,7 @@ export function shallowReadonly(obj) {
 }
 
 function track(target, key) {
-  if (!activeEffect) return
+  if (!activeEffect || !shouldTrack) return
 
   let depsMap = bucket.get(target)
   if (!depsMap) {
@@ -173,8 +285,13 @@ function trigger(target, key, type, newVal) {
       }
     })
 
-  // for...in
-  if (type === TriggerType.ADD || type === TriggerType.DELETE) {
+  // ITERATE_KEY
+  // for...in / or map.forEach
+  if (
+    type === TriggerType.ADD ||
+    type === TriggerType.DELETE ||
+    (isMap(target) && type === TriggerType.SET)
+  ) {
     const iterateEffects = depsMap.get(ITERATE_KEY)
     iterateEffects &&
       iterateEffects.forEach((fn) => {
