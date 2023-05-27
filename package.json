@@ -1,0 +1,17 @@
+{
+  "name": "vue3-book-review",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@vue/reactivity": "3.3.4",
+    "vue": "3.3.4"
+  }
+}
