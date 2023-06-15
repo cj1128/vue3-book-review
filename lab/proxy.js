@@ -1,6 +1,7 @@
 export const bucket = new WeakMap()
 
 const ITERATE_KEY = Symbol()
+const MAP_KEY_ITERATE_KEY = Symbol()
 const RAW_KEY = Symbol()
 let shouldTrack = true
 
@@ -96,39 +97,53 @@ const mutableInstrumentations = {
     })
   },
 
-  [Symbol.iterator]: iterationMethod,
-  entries: iterationMethod,
+  [Symbol.iterator]: iterationMethod(Symbol.iterator),
+  entries: iterationMethod("entries"),
+  values: iterationMethod("values"),
+  keys: iterationMethod("keys"),
 }
-function iterationMethod() {
-  const target = this[RAW_KEY]
-  track(target, ITERATE_KEY)
+function iterationMethod(key) {
+  return function () {
+    const target = this[RAW_KEY]
 
-  const itr = target[Symbol.iterator]()
+    if (key === "keys" && isMap(target)) {
+      track(target, MAP_KEY_ITERATE_KEY)
+    } else {
+      track(target, ITERATE_KEY)
+    }
 
-  return {
-    next() {
-      const { value, done } = itr.next()
-      return {
-        value: value ? [wrap(value[0], wrap[value[1]])] : value,
-        done,
-      }
-    },
+    const itr = target[key]()
 
-    [Symbol.iterator]() {
-      return this
-    },
+    return {
+      next() {
+        const { value, done } = itr.next()
+        return {
+          value: value
+            ? Array.isArray(value)
+              ? value.map(wrap)
+              : wrap(value)
+            : value,
+          done,
+        }
+      },
+
+      [Symbol.iterator]() {
+        return this
+      },
+    }
   }
 }
 
 function createReactive(target, isShalow = false, isReadonly = false) {
   return new Proxy(target, {
     get(target, key, receiver) {
+      console.log("get", target, key, )
       // console.log("read key", key)
       if (key === RAW_KEY) {
         return target
       }
 
-      // set & map
+      // Set & Map
       {
         if (key === "size") {
           track(target, ITERATE_KEY)
@@ -208,8 +223,6 @@ function createReactive(target, isShalow = false, isReadonly = false) {
       const hasKey = hasOwnProperty(target, key)
       const res = Reflect.deleteProperty(target, key)
 
-      console.log({ hasKey, res })
-
       if (hasKey && res) {
         trigger(target, key, TriggerType.DELETE)
       }
@@ -286,13 +299,30 @@ function trigger(target, key, type, newVal) {
     })
 
   // ITERATE_KEY
-  // for...in / or map.forEach
+  // for...in
+  // map: for...of, forEach, entries, values
+  // set: for...of, forEach, entries, values, keys
   if (
     type === TriggerType.ADD ||
     type === TriggerType.DELETE ||
-    (isMap(target) && type === TriggerType.SET)
+    (type === TriggerType.SET && isMap(target))
   ) {
     const iterateEffects = depsMap.get(ITERATE_KEY)
+    iterateEffects &&
+      iterateEffects.forEach((fn) => {
+        if (fn !== activeEffect) {
+          effectsToRun.add(fn)
+        }
+      })
+  }
+
+  // MAP_KEY_ITERATE_KEY
+  if (
+    isMap(target) &&
+    type === TriggerType.ADD ||
+    type === TriggerType.DELETE
+  ) {
+    const iterateEffects = depsMap.get(MAP_KEY_ITERATE_KEY)
     iterateEffects &&
       iterateEffects.forEach((fn) => {
         if (fn !== activeEffect) {

@@ -87,7 +87,7 @@
   - 如何代理其他集合类型，例如 Map, Set, WeakMap, WeakSet
 - Proxy & Reflect
   - Proxy: 实现对 **其他对象** 的 **代理**，所谓代理，指的是“拦截并重新定义对一个对象的基本操作“
-  - 使用 Reflect 来解决 `this` 指向的问题
+  - 使用 Reflect 来解决 `this` 指向的问题，下面的代码如果不用 Reflect 直接使用 `target[key]` 会丢失掉对 foo 属性的响应性
     ```js
     const obj = {
       foo: 1,
@@ -120,7 +120,8 @@
   - 比对新旧值，值不一样才触发
     - `===` 比较符有一个缺陷就是无法处理 `NaN`
     - 注意不能使用 `isNaN` 来判断，这个函数只能接收数字参数，其他类型会被 coerce 到数字，例如 `isNaN({}) === true`
-  - 处理原型链：如果对象自身不存在某属性，设置属性时，会获取对象的原型，并调用原型的 `[[Get]]` 方法得到最终结果
+  - 处理原型链
+    - 如果对象自身不存在某属性，设置属性时，会获取对象的原型，并调用原型的 `[[Set]]` 方法
 - 浅响应和深响应
   - 浅响应：只有对象的第一层是有响应的
 - 只读和浅只读
@@ -148,7 +149,7 @@
     - 需要覆盖原生的 `includes/indexOf/lastIndexOf` 方法
   - 隐式修改数字长度的原型方法
     - `push/pop/shift/unshift`
-    - 两个独立的副作用函数互相影响，这里的问题在于 `push` 隐式读取了 length，解决方案是阻止 `length` 读取和副作用函数之间建立联系
+    - 两个独立的副作用函数互相影响导致循环调用，这里的问题在于 `push` 隐式读取了 length，解决方案是阻止 `length` 读取和副作用函数之间建立联系
       ```js
       const arr = reactive([])
 
@@ -185,3 +186,6 @@
       - 确保深响应，传递给 forEach 的参数需要进行响应性包装
       - `SET` 操作也需要重新触发 `forEach`
   - 迭代器方法：`entries`/`keys`/`values`
+    - 注意区别 `iterable` 和 `iterator`
+    - `iterable`: 实现了 `Symbol.iterator` 方法
+    - `iterator`: 实现了 `next` 方法
