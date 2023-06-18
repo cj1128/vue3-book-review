@@ -1,5 +1,14 @@
 # Vue3 Book Review
 
+- [Chapter 1: 权衡的艺术](#chapter-1-权衡的艺术)
+- [Chapter 2: 框架设计的核心要素](#chapter-2-框架设计的核心要素)
+- [Chapter 3: Vue3 的设计思路](#chapter-3-vue3-的设计思路)
+- [Chapter 4: 响应系统的作用与实现](#chapter-4-响应系统的作用与实现)
+- [Chapter 5: 非原始值的响应式方案](#chapter-5-非原始值的响应式方案)
+- [Chapter 6: 原始值的响应式方案](#chapter-6-原始值的响应式方案)
+- [Chapter 7: 渲染器](#chapter-7-渲染器)
+- [Chapter 8: 挂载与更新](#chapter-8-挂载与更新)
+
 ## Chapter 1: 权衡的艺术
 
 - > 声明式代码的性能不优于命令式代码的性能。
@@ -189,3 +198,57 @@
     - 注意区别 `iterable` 和 `iterator`
     - `iterable`: 实现了 `Symbol.iterator` 方法
     - `iterator`: 实现了 `next` 方法
+
+## Chapter 6: 原始值的响应式方案
+
+- 原始值: `Boolean`, `Number`, `BigInt`, `String`, `Symbol`, `undefined`, `null`
+  - 按值传递，而不是按引用传递
+- ref
+  - 原始值无法拦截，必须包装在对象中
+  - 引入 `ref` 函数进行规范化包装
+  - 定义一个 `__v_isRef` 属性来区别 “原始值的包裹对象” 和 “非原始值的响应对象”
+- `toRef` && `toRefs`
+- 自动脱 ref
+  - 通过代理实现
+  - 如果发现是一个 ref（通过检查 `__v_isRef` 属性），读取时自动返回 `.value` 值，设置时也是一样的道理
+
+## Chapter 7: 渲染器
+
+- Vue 的很多功能依赖渲染器实现：Transition组件，Teleport组件，Suspense组件，template ref 以及自定义指令
+- 渲染器也是框架跨平台能力的关键，通过实现针对不同平台的渲染器，可以将 Vue 用在不同的平台上
+- 渲染器的基本概念
+  - 把虚拟 DOM 节点渲染成真实 DOM 节点的过程叫作“挂载“，英文是 mount
+  - 渲染器不仅可以用来渲染，还可以用来激活已有的 DOM 元素，不仅包含 `render` 函数，还包含 `hydrate` 函数
+  - patch 函数是渲染器的核心
+- 自定义渲染器
+  - 将平台特定的 API 作为参数传递给 `createRenderer`
+
+## Chapter 8: 挂载与更新
+
+- HTML Attributes vs DOM Properties
+  - https://javascript.info/dom-attributes-and-properties
+  - 很多 HTML Attribute 有对应的同名 DOM Property，例如 `id`
+  - 有的 Attribute 和 Property 名字不一样，例如 `class` 和 `className`
+  - `aria-*` 没有对应的 Property
+  - 不是所有的 Property 都有对应的 Attribute，例如 `textContent`
+  - 某些 Attribute 和 Property 之间互相关联，更新一个另一个也会变化，例如 `id`
+  - 其他则是 Attribute 作为 Property 的初始值，例如 `value`
+- 正确地设置元素属性
+  - 优先设置 DOM Property
+  - 如果是 bool 类型的属性，要特别处理，例如 `disabled`，此时空字符串也意味着 true
+  - 某些 Property 是只读的，例如 `input.form`，只能通过 Attribute 来设置
+- class 的处理
+  - Vue 对 class 属性做了增强，支持多种方式来设置 class
+  - 浏览器中对一个元素设置 class 有三种方式：`el.className`, `setAttribute`, `el.classList`
+- 卸载
+  - 使用 `innerHTML = ""` 来清空容器有如下缺陷
+    - 组件的 `beforeUnmount` 和 `unmounted` 钩子不会被调用
+    - 自定义指令的相关钩子不会被调用
+    - DOM元素的事件处理器没有被移除
+  - 正确做法：根据 vnode 获取到 DOM 然后使用 DOM 操作 `vnode.el.parentNode.removeChild(vnode.el)`
+- 事件的处理
+  - 事件是一种特殊的属性，可以约定，在 `vnode.props` 中，凡是以 `on` 开头的属性，都认为是事件
+  - DOM 中绑定的事件处理器是一个伪造的处理器，在这个处理器内容调用真实的处理器
+    - 这样做相当于增加了一个 layer，可以提高性能，避免反复创建创建监听器和卸载监听器，还可以解决其他问题
+    - 可以通过 `el._vei` 获取到这个伪造的处理器
+    - vei: Vue Event Invoker

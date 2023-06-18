@@ -137,8 +137,6 @@ function iterationMethod(key) {
 function createReactive(target, isShalow = false, isReadonly = false) {
   return new Proxy(target, {
     get(target, key, receiver) {
-      console.log("get", target, key, )
-      // console.log("read key", key)
       if (key === RAW_KEY) {
         return target
       }
@@ -233,6 +231,7 @@ function createReactive(target, isShalow = false, isReadonly = false) {
 }
 
 const reactiveMap = new Map()
+
 export function reactive(obj) {
   const cache = reactiveMap.get(obj)
   if (cache) return cache
@@ -318,8 +317,7 @@ function trigger(target, key, type, newVal) {
 
   // MAP_KEY_ITERATE_KEY
   if (
-    isMap(target) &&
-    type === TriggerType.ADD ||
+    (isMap(target) && type === TriggerType.ADD) ||
     type === TriggerType.DELETE
   ) {
     const iterateEffects = depsMap.get(MAP_KEY_ITERATE_KEY)
@@ -485,4 +483,35 @@ export function watch(source, cb, options = {}) {
   } else {
     oldValue = effectFn()
   }
+}
+
+function addIsRef(obj) {
+  Object.defineProperty(obj, "__v_isRef", {
+    value: true,
+  })
+}
+
+export function ref(val) {
+  const wrapper = {
+    value: val,
+  }
+
+  addIsRef(wrapper)
+
+  return reactive(wrapper)
+}
+
+export function toRef(obj, key) {
+  const wrapper = {
+    get value() {
+      return obj[key]
+    },
+    set value(val) {
+      obj[key] = val
+    },
+  }
+
+  addIsRef(wrapper)
+
+  return wrapper
 }
