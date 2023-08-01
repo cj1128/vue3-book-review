@@ -80,6 +80,31 @@
   - 解决：增加一个判断，如果取出来的副作用函数就是当前函数，那么不进行调用
 - **可调度性**：当 trigger 动作触发副作用函数重新执行时，有能力决定副作用函数执行的时机，次数以及方式。
   - 使用 effect 注册副作用函数时，可以传递第二个参数制定一个调度器 scheduler
+    ```js
+    const jobQueue = new Set()
+    const p = Promise.resolve()
+
+    let isFlushing = false
+    function flushJob() {
+      if(isFlushing) return
+      isFlushing = true
+
+      p.then(() => {
+        jobQueue.forEach(job => job())
+      }).finally(() => {
+        isFlushing = false
+      })
+    }
+
+    effect(() => {
+    }, {
+      scheduler(fn) {
+        jobQueue.add(fn)
+        flushJob()
+      }
+    })
+
+    ```
 - computed and lazy
   - computed 本质上是一个 lazy 的副作用函数
   - effect 可以指定参数 `lazy`，如果 lazy=true，那么副作用函数不会被立即执行，此时，我们将副作用函数返回，用户可以手动进行执行
@@ -208,7 +233,7 @@
   - 引入 `ref` 函数进行规范化包装
   - 定义一个 `__v_isRef` 属性来区别 “原始值的包裹对象” 和 “非原始值的响应对象”
 - `toRef` && `toRefs`
-- 自动脱 ref
+- 自动脱 ref (auto unwrap)
   - 通过代理实现
   - 如果发现是一个 ref（通过检查 `__v_isRef` 属性），读取时自动返回 `.value` 值，设置时也是一样的道理
 
@@ -249,6 +274,66 @@
 - 事件的处理
   - 事件是一种特殊的属性，可以约定，在 `vnode.props` 中，凡是以 `on` 开头的属性，都认为是事件
   - DOM 中绑定的事件处理器是一个伪造的处理器，在这个处理器内容调用真实的处理器
-    - 这样做相当于增加了一个 layer，可以提高性能，避免反复创建创建监听器和卸载监听器，还可以解决其他问题
+    - 这样做相当于增加了一个 layer，可以提高性能，避免反复创建创建监听器和卸载监听器，还可以解决其他问题，例如下文的【事件冒泡和更新时机的问题】
     - 可以通过 `el._vei` 获取到这个伪造的处理器
-    - vei: Vue Event Invoker
+      - vei: Vue Event Invoker
+    - 事件冒泡与更新时机
+      - 无法知道事件冒泡是否完成，以及完成到什么程度
+      - 点击事件 -> 触发子元素事件处理器 -> 更新渲染，父元素绑定事件处理器 -> 事件冒泡到父元素 -> 父元素的事件处理器执行
+        - 这是不符合预期的结果
+        - 即便将更新放在微任务队列里也不行
+        - 利用时间来解决：屏蔽所有绑定时间晚于触发时间的处理器的执行
+        - 这里注意使用高精度时间
+        - 时间解决了处理器从无到有的问题，但是处理器更新的情况下，还是会调用更新后的处理器，下面的例子，点击的时候会 alert 111
+          ```js
+          <!DOCTYPE html>
+          <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+            </head>
+            <body>
+              <div id="app"></div>
+
+              <script>
+                const { ref, effect, h } = Vue
+                Vue.createApp({
+                  setup() {
+                    const bol = ref(false)
+                    return { bol }
+                  },
+                  render() {
+                    console.log("renderer")
+                    window.cj = this
+                    return h(
+                      "div",
+                      { onClick: this.bol ? () => alert(111) : () => alert(222) },
+                      [
+                        h(
+                          "p",
+                          {
+                            onClick: (evt) => {
+                              this.bol = true
+                            },
+                          },
+                          "text"
+                        ),
+                      ]
+                    )
+                  },
+                }).mount("#app")
+              </script>
+            </body>
+          </html>
+          ```
+ - 更新子节点
+  - 元素的子节点只有三种情况
+    - 没有子节点
+    - 有文本子节点
+    - 子节点是数组
+  - 子节点更新时，一共 3*3 九种可能性
+- 文本节点和注释节点
+  - `vnode.type` 是字符串，无法很好的表达文本节点和注释节点
+  - 使用 `Symbol()` 来创建唯一标识符来表示文本节点和注释节点
+- Fragment

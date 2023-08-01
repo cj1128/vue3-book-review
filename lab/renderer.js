@@ -3,12 +3,20 @@ function shouldSetAsProps(el, key, value) {
   return false
 }
 
+const isArray = (x) => Array.isArray(x)
+
 const DOMApis = {
+  createText(content) {
+    return document.createTextNode(content)
+  },
+  setText(el, text) {
+    el.nodeValue = text
+  },
   createElement(tag) {
     return document.createElement(tag)
   },
   setElementText(el, text) {
-    el.textContext = text
+    el.innerText = text
   },
   insert(el, parent, anchor = null) {
     parent.insertBefore(el, anchor)
@@ -21,13 +29,17 @@ const DOMApis = {
       if (nextValue) {
         if (!invoker) {
           invoker = el._vei[key] = (evt) => {
-            if (Array.isArray(invoker.value)) {
+            // 事件触发时间早于处理器绑定时间
+            if(evt.timestamp < invoker.attached) return
+
+            if (isArray(invoker.value)) {
               invoker.value.forEach((fn) => fn(evt))
             } else {
               invoker.value(evt)
             }
           }
           invoker.value = nextValue
+          invoker.attached = performance.now()
           el.addEventListener(name, invoker)
         } else {
           invoker.value = nextValue
@@ -51,8 +63,10 @@ const DOMApis = {
   },
 }
 
+const Text = Symbol()
+const Comment = Symbol()
 export function createRenderer(apis = DOMApis) {
-  const { createElement, insert, setElementText, patchProps } = apis
+  const { createElement, insert, setElementText, patchProps, createText } = apis
 
   function patch(n1, n2, container) {
     if (n1 && n1.type !== n2.type) {
@@ -67,8 +81,67 @@ export function createRenderer(apis = DOMApis) {
       } else {
         patchElement(n1, n2)
       }
+    } else if (type === Text) {
+      if (!n1) {
+        const el = (n2.el = createText(n2.children))
+        insert(el, container)
+      } else {
+        const el = (n2.el = n1.el)
+        if (n2.children !== n1.children) {
+          setText(el, n2.children)
+        }
+      }
     } else if (typeof type === "object") {
-      // Component
+      // TODO: Component
+    }
+  }
+
+  function patchElement(n1, n2) {
+    const el = (n2.el = n1.el)
+    const oldProps = n1.props
+    const newProps = n2.props
+
+    for (const key in newProps) {
+      if (newProps[key] !== oldProps[key]) {
+        patchProps(el, key, oldProps[key], newProps[key])
+      }
+    }
+
+    for (const key in oldProps) {
+      if (!(key in newProps)) {
+        patchProps(el, key, oldProps[key], null)
+      }
+    }
+
+    patchChildren(n1, n2, el)
+  }
+
+  function patchChildren(n1, n2, container) {
+    // 新节点是文本
+    if (typeof n2.children === "string") {
+      // 旧节点是一组节点
+      if (isArray(n1.children)) {
+        n1.children.forEach((c) => unmount(c))
+      }
+
+      setElementText(container, n2.children)
+      // 新节点是一组子节点
+    } else if (isArray(n2.children)) {
+      if (isArray(n1.children)) {
+        // TODO: diff
+        n1.children.forEach((c) => unmount(c))
+        n2.children.forEach((c) => patch(null, c, container))
+      } else {
+        setElementText(container, "")
+        n2.children.forEach((c) => patch(null, c, container))
+      }
+      // 新子节点不存在
+    } else {
+      if (isArray(n1.children)) {
+        n1.children.forEach((c) => unmount(c))
+      } else if (typeof n1.children === "string") {
+        setElementText(container, "")
+      }
     }
   }
 
@@ -86,6 +159,14 @@ export function createRenderer(apis = DOMApis) {
 
   function mountElement(vnode, container) {
     const el = (vnode.el = createElement(vnode.type))
+
+    if (typeof vnode.children === "string") {
+      setElementText(el, vnode.children)
+    } else if (isArray(vnode.children)) {
+      vnode.children.forEach((child) => {
+        patch(null, child, el)
+      })
+    }
 
     if (vnode.props) {
       for (const key in vnode.props) {

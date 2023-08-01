@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      const { ref, effect, h } = Vue
+      Vue.createApp({
+        setup() {
+          const bol = ref(false)
+          return { bol }
+        },
+        render() {
+          console.log("renderer")
+          window.cj = this
+          return h(
+            "div",
+            { onClick: this.bol ? () => alert(111) : () => alert(222) },
+            [
+              h(
+                "p",
+                {
+                  onClick: (evt) => {
+                    this.bol = true
+                  },
+                },
+                "text"
+              ),
+            ]
+          )
+        },
+      }).mount("#app")
+    </script>
+  </body>
+</html>

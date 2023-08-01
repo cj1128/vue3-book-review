@@ -1,28 +1,43 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
-</head>
-<body>
-  <div id="app"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
 
-  <script type="module">
-    import { ref, effect } from "./proxy.js"
+    <script type="module">
+      import { ref, effect } from "./proxy.js"
+      import { createRenderer } from "./renderer.js"
 
-    const count = ref(1)
+      const bol = ref(false)
 
-    function renderer(domString, container) {
-      container.innerHTML = domString
-    }
+      const renderer = createRenderer()
 
-    effect(() => {
-      renderer(`<h1>${count.value}</h1>`, document.querySelector("#app"))
-    })
+      effect(() => {
+        const vnode = {
+          type: "div",
+          props: {
+            onClick: bol.value ? () => alert(1111) : () => alert(222),
+          },
+          children: [
+            {
+              type: "p",
+              props: {
+                onClick: (evt) => {
+                  console.log(evt)
+                  bol.value = true
+                },
+              },
+              children: "text",
+            },
+          ],
+        }
 
-    window.count = count
-  </script>
-
-</body>
+        renderer.render(vnode, document.querySelector("#app"))
+      }, {})
+    </script>
+  </body>
 </html>
