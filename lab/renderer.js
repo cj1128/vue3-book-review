@@ -1,11 +1,18 @@
-function shouldSetAsProps(el, key, value) {
-  if (key === "form" && el.tagName === "INPUT") return true
-  return false
+// el.form 是只读的，只能通过 attribute 来设置
+function shouldSetAsProp(el, key, value) {
+  if (key === "form" && el.tagName === "INPUT") return false
+  return key in el
 }
 
 const isArray = (x) => Array.isArray(x)
 
 const DOMApis = {
+  firstChild(el) {
+    return el.firstChild
+  },
+  nextSibling(el) {
+    return el.nextSibling
+  },
   createText(content) {
     return document.createTextNode(content)
   },
@@ -13,15 +20,20 @@ const DOMApis = {
     el.nodeValue = text
   },
   createElement(tag) {
+    console.log("[DOM] create")
     return document.createElement(tag)
+  },
+  removeChild(parent, child) {
+    console.log("[DOM] remove")
+    parent.removeChild(child)
   },
   setElementText(el, text) {
     el.innerText = text
   },
-  insert(el, parent, anchor = null) {
+  insertBefore(el, parent, anchor = null) {
     parent.insertBefore(el, anchor)
   },
-  patchProps(el, key, prevValue, nextValue) {
+  patchProp(el, key, prevValue, nextValue) {
     if (/^on/.test(key)) {
       const invokers = el._vei || (el._vei = {})
       let invoker = invokers[key]
@@ -30,7 +42,7 @@ const DOMApis = {
         if (!invoker) {
           invoker = el._vei[key] = (evt) => {
             // 事件触发时间早于处理器绑定时间
-            if(evt.timestamp < invoker.attached) return
+            if (evt.timestamp < invoker.attached) return
 
             if (isArray(invoker.value)) {
               invoker.value.forEach((fn) => fn(evt))
@@ -49,7 +61,7 @@ const DOMApis = {
       }
     } else if (key === "class") {
       el.className = nextValue || ""
-    } else if (shouldSetAsProps(el, key, value)) {
+    } else if (shouldSetAsProp(el, key, value)) {
       const type = typeof el[key]
 
       if (type === "boolean" && nextValue === "") {
@@ -65,10 +77,25 @@ const DOMApis = {
 
 const Text = Symbol()
 const Comment = Symbol()
-export function createRenderer(apis = DOMApis) {
-  const { createElement, insert, setElementText, patchProps, createText } = apis
+const Fragment = Symbol()
 
-  function patch(n1, n2, container) {
+function sameKey(n1, n2) {
+  return n1.type === n2.type && n1.key && n2.key && n1.key === n2.key
+}
+
+export function createRenderer(apis = DOMApis) {
+  const {
+    createElement,
+    setElementText,
+    patchProp,
+    createText,
+    removeChild,
+    nextSibling,
+    firstChild,
+    insertBefore,
+  } = apis
+
+  function patch(n1, n2, container, anchor) {
     if (n1 && n1.type !== n2.type) {
       unmount(n1)
       n1 = null
@@ -77,19 +104,25 @@ export function createRenderer(apis = DOMApis) {
     const { type } = n2
     if (typeof type === "string") {
       if (!n1) {
-        mountElement(n2, container)
+        mountElement(n2, container, anchor)
       } else {
         patchElement(n1, n2)
       }
     } else if (type === Text) {
       if (!n1) {
         const el = (n2.el = createText(n2.children))
-        insert(el, container)
+        insertBefore(el, container)
       } else {
         const el = (n2.el = n1.el)
         if (n2.children !== n1.children) {
           setText(el, n2.children)
         }
+      }
+    } else if (type === Fragment) {
+      if (!n1) {
+        n2.children.forEach((c) => patch(null, c, container))
+      } else {
+        patchChildren(n1, n2, container)
       }
     } else if (typeof type === "object") {
       // TODO: Component
@@ -103,13 +136,13 @@ export function createRenderer(apis = DOMApis) {
 
     for (const key in newProps) {
       if (newProps[key] !== oldProps[key]) {
-        patchProps(el, key, oldProps[key], newProps[key])
+        patchProp(el, key, oldProps[key], newProps[key])
       }
     }
 
     for (const key in oldProps) {
       if (!(key in newProps)) {
-        patchProps(el, key, oldProps[key], null)
+        patchProp(el, key, oldProps[key], null)
       }
     }
 
@@ -128,9 +161,84 @@ export function createRenderer(apis = DOMApis) {
       // 新节点是一组子节点
     } else if (isArray(n2.children)) {
       if (isArray(n1.children)) {
-        // TODO: diff
-        n1.children.forEach((c) => unmount(c))
-        n2.children.forEach((c) => patch(null, c, container))
+        // NOTE: simple diff
+        const oldChildren = n1.children
+        const newChildren = n2.children
+
+        // simple diff
+        // {
+        //   const oldLen = oldChildren.length
+        //   const newLen = newChildren.length
+
+        //   const commonLen = Math.min(oldLen, newLen)
+
+        //   for (let i = 0; i < commonLen; i++) {
+        //     patch(oldChildren[i], newChildren[i], container)
+        //   }
+
+        //   // 新的节点需要挂载
+        //   if (newLen > oldLen) {
+        //     for (let i = commonLen; i < newLen; i++) {
+        //       patch(null, newChildren[i], container)
+        //     }
+        //     // 多余的节点需要卸载
+        //   } else if (oldLen > newLen) {
+        //     for (let i = commonLen; i < oldLen; i++) {
+        //       unmount(oldChildren[i])
+        //     }
+        //   }
+        // }
+
+        // use key
+        {
+          let lastIndex = 0
+          for (let i = 0; i < newChildren.length; i++) {
+            const newNode = newChildren[i]
+
+            let find = false
+            for (let j = 0; j < oldChildren.length; j++) {
+              const oldNode = oldChildren[j]
+              if (sameKey(oldNode, newNode)) {
+                find = true
+                console.log("!!! patch")
+                patch(oldNode, newNode, container)
+                if (j < lastIndex) {
+                  // 当前节点在 oldChildren 中的索引值小于最大索引值
+                  // 意味着当前节点需要移动
+                  const prevNode = newChildren[i - 1]
+                  if (prevNode) {
+                    const anchor = nextSibling(prevNode.el)
+                    insertBefore(newNode.el, container, anchor)
+                  }
+                } else {
+                  lastIndex = j
+                }
+              }
+            }
+
+            if (!find) {
+              const prevNode = newChildren[i - 1]
+              let anchor = null
+              if (prevNode) {
+                anchor = nextSibling(prevNode.el)
+              } else {
+                anchor = firstChild(container)
+              }
+
+              patch(null, newNode, container, anchor)
+            }
+
+            // 移除多余的元素
+            for (const oldNode of oldChildren) {
+              const has = newChildren.find((newNode) =>
+                sameKey(oldNode, newNode)
+              )
+              if (!has) {
+                unmount(oldNode)
+              }
+            }
+          }
+        }
       } else {
         setElementText(container, "")
         n2.children.forEach((c) => patch(null, c, container))
@@ -157,7 +265,7 @@ export function createRenderer(apis = DOMApis) {
     container._vnode = vnode
   }
 
-  function mountElement(vnode, container) {
+  function mountElement(vnode, container, anchor) {
     const el = (vnode.el = createElement(vnode.type))
 
     if (typeof vnode.children === "string") {
@@ -170,17 +278,22 @@ export function createRenderer(apis = DOMApis) {
 
     if (vnode.props) {
       for (const key in vnode.props) {
-        patchProps(el, key, null, vnode.props[key])
+        patchProp(el, key, null, vnode.props[key])
       }
     }
 
-    insert(el, container)
+    insertBefore(el, container, anchor)
   }
 
   function unmount(vnode) {
+    if (vnode.type === Fragment) {
+      vnode.children.forEach((c) => unmount(c))
+      return
+    }
+
     const parent = vnode.el.parentNode
     if (parent) {
-      parent.removeChild(vnode.el)
+      removeChild(parent, vnode.el)
     }
   }
 

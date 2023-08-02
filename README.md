@@ -8,6 +8,7 @@
 - [Chapter 6: 原始值的响应式方案](#chapter-6-原始值的响应式方案)
 - [Chapter 7: 渲染器](#chapter-7-渲染器)
 - [Chapter 8: 挂载与更新](#chapter-8-挂载与更新)
+- [Chapter 9: 简单 Diff 算法](#chapter-9-简单-diff-算法)
 
 ## Chapter 1: 权衡的艺术
 
@@ -337,3 +338,70 @@
   - `vnode.type` 是字符串，无法很好的表达文本节点和注释节点
   - 使用 `Symbol()` 来创建唯一标识符来表示文本节点和注释节点
 - Fragment
+  - 很好处理，Fragment 本身并不渲染任何内容，只需要处理子节点就行
+
+## Chapter 9: 简单 Diff 算法
+
+- 之前是做法是全部卸载旧子节点，然后挂载新子节点
+  - 这样做可以用，但是效率会很低
+  - 通过 diff 比较，我们可以优化这个操作，算法是：按顺序比对新旧节点，如果类型一样，则执行 patch 操作
+    ```js
+    const oldChildren = n1.children
+    const newChildren = n2.children
+    const oldLen = oldChildren.length
+    const newLen = newChildren.length
+
+    const commonLen = Math.min(oldLen, newLen)
+
+    for (let i = 0; i < commonLen; i++) {
+      patch(oldChildren[i], newChildren[i], container)
+    }
+
+    // 新的节点需要挂载
+    if (newLen > oldLen) {
+      for (let i = commonLen; i < newLen; i++) {
+        patch(null, newChildren[i], container)
+      }
+      // 多余的节点需要卸载
+    } else if (oldLen > newLen) {
+      for (let i = commonLen; i < oldLen; i++) {
+        unmount(oldChildren[i])
+      }
+    }
+    ```
+- DOM 复用
+  - 上面的算法仍然有问题，新旧之间如果存在顺序变动的情况下，会全部卸载然后全部装载，而不是复用 DOM
+    ```js
+    // old
+    [
+      {type: "p"},
+      {type: "span"},
+      {type: "div"},
+    ]
+    // new
+    [
+      {type: "div"},
+      {type: "p"},
+      {type: "span"}
+    ]
+    ```
+  - 引入 `key` 的概念，渲染器如何知道 DOM 是相同的可以复用？单纯的看 type 字段并不够，考虑如下情况
+    ```js
+    // old
+    [
+      {type: "p", children: "1"},
+      {type: "p", children: "2"},
+      {type: "p", children: "3"},
+    ]
+    // new
+    [
+      {type: "p", children: "3"},
+      {type: "p", children: "1"},
+      {type: "p", children: "2"},
+    ]
+    ```
+  - 用户通过添加 key 的形式告知渲染器 **新旧两组子节点中节点的对应关系**
+  - 算法
+    - 找到对应的新旧节点，patch，然后移动节点的位置
+    - mount 新增的节点
+    - unmount 多余的节点

@@ -6,38 +6,38 @@
     <title>Document</title>
   </head>
   <body>
+    <button id="btn">click me</button>
     <div id="app"></div>
 
     <script type="module">
       import { ref, effect } from "./proxy.js"
       import { createRenderer } from "./renderer.js"
 
-      const bol = ref(false)
+      const oldVNode = {
+        type: "div",
+        children: [
+          { type: "h1", children: "h1", key: "h1"},
+          { type: "p", children: "p", key: "p"},
+          { type: "div", children: "div", key: "div"},
+        ],
+      }
+
+      const newVNode = {
+        type: "div",
+        children: [
+          { type: "h2", children: "h2", key: "h1"},
+          { type: "p", children: "p", key: "p"},
+          { type: "div", children: "div", key: "div"},
+        ],
+      }
 
       const renderer = createRenderer()
 
-      effect(() => {
-        const vnode = {
-          type: "div",
-          props: {
-            onClick: bol.value ? () => alert(1111) : () => alert(222),
-          },
-          children: [
-            {
-              type: "p",
-              props: {
-                onClick: (evt) => {
-                  console.log(evt)
-                  bol.value = true
-                },
-              },
-              children: "text",
-            },
-          ],
-        }
+      renderer.render(oldVNode, document.querySelector("#app"))
 
-        renderer.render(vnode, document.querySelector("#app"))
-      }, {})
+      document.querySelector("#btn").addEventListener("click", () => {
+        renderer.render(newVNode, document.querySelector("#app"))
+      })
     </script>
   </body>
 </html>
