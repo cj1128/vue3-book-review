@@ -80,7 +80,7 @@ const Comment = Symbol()
 const Fragment = Symbol()
 
 function sameKey(n1, n2) {
-  return n1.type === n2.type && n1.key && n2.key && n1.key === n2.key
+  return n1.key && n2.key && n1.key === n2.key
 }
 
 export function createRenderer(apis = DOMApis) {
@@ -88,13 +88,15 @@ export function createRenderer(apis = DOMApis) {
     createElement,
     setElementText,
     patchProp,
-    createText,
+    createText: createText,
     removeChild,
     nextSibling,
     firstChild,
     insertBefore,
   } = apis
 
+  // anchor: insertBefore anchor
+  // n1: old, n2: new
   function patch(n1, n2, container, anchor) {
     if (n1 && n1.type !== n2.type) {
       unmount(n1)
@@ -149,6 +151,10 @@ export function createRenderer(apis = DOMApis) {
     patchChildren(n1, n2, el)
   }
 
+  // 子节点只有三种情况
+  // 1. 没有子节点
+  // 2. 文本子节点
+  // 3. 一组子节点
   function patchChildren(n1, n2, container) {
     // 新节点是文本
     if (typeof n2.children === "string") {
@@ -160,12 +166,18 @@ export function createRenderer(apis = DOMApis) {
       setElementText(container, n2.children)
       // 新节点是一组子节点
     } else if (isArray(n2.children)) {
+      // NOTE: core diff algorithm
       if (isArray(n1.children)) {
-        // NOTE: simple diff
         const oldChildren = n1.children
         const newChildren = n2.children
 
-        // simple diff
+        // naive diff 旧的全部卸载，新的全部挂载
+        // {
+        //   n1.children.forEach((c) => unmount(c))
+        //   n2.children.forEach((c) => patch(null, c, container))
+        // }
+
+        // simple diff 按顺序比较
         // {
         //   const oldLen = oldChildren.length
         //   const newLen = newChildren.length
@@ -189,7 +201,7 @@ export function createRenderer(apis = DOMApis) {
         //   }
         // }
 
-        // use key
+        // keyed diff 根据 key 判断新旧节点的对应关系
         {
           let lastIndex = 0
           for (let i = 0; i < newChildren.length; i++) {
@@ -200,7 +212,6 @@ export function createRenderer(apis = DOMApis) {
               const oldNode = oldChildren[j]
               if (sameKey(oldNode, newNode)) {
                 find = true
-                console.log("!!! patch")
                 patch(oldNode, newNode, container)
                 if (j < lastIndex) {
                   // 当前节点在 oldChildren 中的索引值小于最大索引值
@@ -227,18 +238,18 @@ export function createRenderer(apis = DOMApis) {
 
               patch(null, newNode, container, anchor)
             }
+          }
 
-            // 移除多余的元素
-            for (const oldNode of oldChildren) {
-              const has = newChildren.find((newNode) =>
-                sameKey(oldNode, newNode)
-              )
-              if (!has) {
-                unmount(oldNode)
-              }
+          // 移除多余的元素
+          for (const oldNode of oldChildren) {
+            const has = newChildren.find((newNode) => sameKey(oldNode, newNode))
+            if (!has) {
+              unmount(oldNode)
             }
           }
         }
+
+        // double ended keyed diff
       } else {
         setElementText(container, "")
         n2.children.forEach((c) => patch(null, c, container))
@@ -298,4 +309,76 @@ export function createRenderer(apis = DOMApis) {
   }
 
   return { render }
+}
+
+function patchKeyedChildren(n1, n2, container) {
+  const oldChildren = n1.children
+  const newChildren = n2.children
+
+  let oldStartIdx = 0
+  let oldEndIdx = oldChildren.length - 1
+  let newStartIdx = 0
+  let newEndIdx = newChildren.length - 1
+
+  let oldStartVNode = oldChildren[oldStartIdx]
+  let oldEndVNode = oldChildren[oldEndIdx]
+  let newStartVNode = newChildren[newStartIdx]
+  let newEndVNode = newChildren[newEndIdx]
+
+  while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+    // undefined 表示已经处理过了
+    if (oldStartVNode === undefined) {
+      oldStartVNode = oldChildren[++oldStartIdx]
+    } else if (oldEndVNode === undefined) {
+      oldEndVNode = oldChildren[--oldEndIdx]
+    } else if (sameKey(oldStartVNode, newStartVNode)) {
+      patch(oldStartVNode, newStartVNode, container)
+      oldStartVNode = oldChildren[++oldStartIdx]
+      newStartVNode = newChildren[++newStartIdx]
+    } else if (sameKey(oldEndVNode, newEndVNode)) {
+      patch(oldEndVNode, newEndVNode, container)
+      oldEndVNode = oldChildren[--oldEndIdx]
+      newEndVNode = newChildren[--newEndIdx]
+    } else if (sameKey(oldStartVNode, newEndVNode)) {
+      patch(oldStartVNode, newEndVNode)
+      insertBefore(oldStartVNode.el, container, oldEndVNode.el.nextSibling)
+      oldStartVNode = oldChildren[++oldStartIdx]
+      newEndVNode = newChildren[--newEndIdx]
+    } else if (sameKey(oldEndVNode, newStartVNode)) {
+      patch(oldEndVNode, newStartVNode, container)
+      insertBefore(oldEndVNode.el, container, oldStartVNode.el)
+
+      oldEndVNode = oldChildren[--oldEndIdx]
+      newStartVNode = newChildren[++newStartIdx]
+    } else {
+      // 四种情况都没有命中
+      const idxInOld = oldChildren.findIndex((n) => sameKey(n, newStartVNode))
+      if (idxInOld > 0) {
+        const vnodeToMove = oldChildren[idxInOld]
+        patch(vnodeToMove, newStartVNode, container)
+        insert(vnodeToMove.el, container, oldStartVNode.el)
+        oldChildren[idxInOld] = undefined
+      } else {
+        patch(null, newStartVNode, container, oldStartVNode.el)
+      }
+
+      newStartVNode = newChildren[++newStartIdx]
+    }
+  }
+
+  // 挂载新元素
+  if(oldEndIdx < oldStartIdx && newStartIdx <= newEndIdx) {
+    for(let i = newStartIdx; i <= newEndIdx; i++) {
+      // TODO: 使用 oldStartVnode.el 作为 anchor 是否可行？
+      const anchor = newChildren[newEndIdx + 1] ? newChildren[newEndIdx + 1].el : null
+      patch(null, newChildren[i], container, anchor)
+    }
+  }
+
+  // 卸载旧元素
+  if(newEndIdx < newStartIdx && oldStartIdx <= oldEndIdx) {
+    for(let i = oldStartIdx; i <= oldEndIdx; i++) {
+      unmount(oldChildren[i])
+    }
+  }
 }

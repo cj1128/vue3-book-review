@@ -9,6 +9,7 @@
 - [Chapter 7: 渲染器](#chapter-7-渲染器)
 - [Chapter 8: 挂载与更新](#chapter-8-挂载与更新)
 - [Chapter 9: 简单 Diff 算法](#chapter-9-简单-diff-算法)
+- [Chapter 10: 双端 Diff 算法](#chapter-10-双端-diff-算法)
 
 ## Chapter 1: 权衡的艺术
 
@@ -385,7 +386,7 @@
       {type: "span"}
     ]
     ```
-  - 引入 `key` 的概念，渲染器如何知道 DOM 是相同的可以复用？单纯的看 type 字段并不够，考虑如下情况
+  - 引入 `key` 的概念，渲染器如何知道 DOM 可以复用？单纯的看 type 字段并不够，考虑如下情况
     ```js
     // old
     [
@@ -401,7 +402,35 @@
     ]
     ```
   - 用户通过添加 key 的形式告知渲染器 **新旧两组子节点中节点的对应关系**
+  - 注意！DOM 可复用并不意味着不需要更新
   - 算法
     - 找到对应的新旧节点，patch，然后移动节点的位置
     - mount 新增的节点
     - unmount 多余的节点
+
+## Chapter 10: 双端 Diff 算法
+
+- 上一章的【简单 diff 算法】对 DOM 的移动操作不是最优的
+  ```js
+  // old
+  // 1, 2, 3
+
+  // new
+  // 3, 1, 2
+
+  // 其实只要做一次移动，将 3 移动到 1 的前面即可
+  ```
+- 双端 Diff: 同时对新旧两组子节点的两个端点进行比较，每次循环做 4 次比较
+  - oldStart vs newStart 头和头
+  - oldEnd vs newEnd 尾和尾
+  - oldStart vs newEnd 头和尾
+  - oldEnd vs newStart 尾和头
+  - `1 2 3 4` vs `4 2 1 3` 可以把四种情况都走遍
+- 非理想情况的处理
+  - `1 2 3 4` vs `2 4 1 3`
+  - 会发现比较的时候四种情况都没有命中
+  - 这个时候，就需要遍历 oldChildren，去寻找 newStart 对应的节点了
+    - 找到了，先 patch 然后移动 oldVNode 到头部位置，继续往下处理
+    - 没找到，说明 newStart 是个新节点，直接挂载即可
+- 比对结束以后，还需要处理新增元素和卸载旧元素
+  - 通过比对结束以后的 `oldStartIdx`, `oldEndIdx`, `newStartIdx`, `newEndIdx` 就可以判断是否有元素需要新增或者卸载
