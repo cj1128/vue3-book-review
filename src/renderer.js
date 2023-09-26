@@ -1,4 +1,5 @@
 import { lis } from "./utils.js"
+import { reactive, effect } from "./proxy.js"
 
 // el.form 是只读的，只能通过 attribute 来设置
 function shouldSetAsProp(el, key, value) {
@@ -130,8 +131,82 @@ export function createRenderer(apis = DOMApis) {
         patchChildren(n1, n2, container)
       }
     } else if (typeof type === "object") {
-      // TODO: Component
+      if (!n1) {
+        mountComponent(n2, container, anchor)
+      } else {
+        patchComponent(n1, n2, anchor)
+      }
     }
+  }
+
+  const queue = new Set()
+  let isFlushing = false
+  const p = Promise.resolve()
+
+  function queueJob(job) {
+    queue.add(job)
+    if (!isFlushing) {
+      isFlushing = true
+
+      p.then(() => {
+        try {
+          queue.forEach((job) => job())
+        } finally {
+          isFlushing = false
+          queue.clear()
+        }
+      })
+    }
+  }
+
+  function mountComponent(vnode, container, anchor) {
+    const componentOptions = vnode.type
+    const {
+      render,
+      data,
+      beforeCreate,
+      created,
+      beforeMount,
+      mounted,
+      beforeUpdate,
+      updated,
+    } = componentOptions
+
+    beforeCreate && beforeCreate()
+
+    const state = reactive(data ? data() : {})
+
+    const instance = {
+      state,
+      isMounted: false,
+      subTree: null,
+    }
+    vnode.component = instance
+
+    created && created.call(state)
+
+    effect(
+      () => {
+        const subTree = render.call(state)
+
+        if (!instance.isMounted) {
+          beforeMount && beforeMount.call(state)
+          patch(null, subTree, container, anchor)
+          instance.isMounted = true
+          mounted && mounted.call(state)
+        } else {
+          beforeUpdate && beforeUpdate.call(state)
+          patch(instance.subTree, subTree, container, anchor)
+          updated && updated.call(state)
+        }
+
+        instance.subTree = subTree
+        vnode.el = subTree.el
+      },
+      {
+        scheduler: queueJob,
+      }
+    )
   }
 
   function patchElement(n1, n2) {
@@ -432,8 +507,7 @@ export function createRenderer(apis = DOMApis) {
     // j ~ newEnd 之间的节点是新节点，需要插入
     if (j > oldEnd && j <= newEnd) {
       const anchorIndex = newEnd + 1
-      const anchor =
-        anchorIndex < newChildren.length ? newChildren[anchorIndex].el : null
+      const anchor = newChildren[anchorIndex]?.el
 
       while (j <= newEnd) {
         patch(null, newChildren[j], container, anchor)
@@ -488,7 +562,6 @@ export function createRenderer(apis = DOMApis) {
       if (moved) {
         // 注意，这里返回的是 sources 的索引
         const seq = lis(sources)
-        console.log(sources, seq)
 
         let s = seq.length - 1
         let i = count - 1
@@ -507,6 +580,15 @@ export function createRenderer(apis = DOMApis) {
             insertBefore(newVNode.el, container, anchor)
           } else {
             s--
+          }
+        }
+      } else {
+        for (let k = sources.length - 1; k >= 0; k--) {
+          if (sources[k] === -1) {
+            // mount
+            const newVNode = newChildren[newStart + k]
+            const anchor = newChildren[newStart + k + 1]?.el
+            patch(null, newVNode, container, anchor)
           }
         }
       }
