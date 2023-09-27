@@ -43,11 +43,15 @@
         const el = container.querySelector("div")
         renderer.render(cur, el)
 
-        container.querySelector("button").addEventListener("click", () => {
-          const next = cur === oldVNode ? newVNode : oldVNode
-          renderer.render(next, el)
-          cur = next
-        })
+        if (newVNode) {
+          container.querySelector("button").addEventListener("click", () => {
+            const next = cur === oldVNode ? newVNode : oldVNode
+            renderer.render(next, el)
+            cur = next
+          })
+        } else {
+          container.querySelector("button").remove()
+        }
       }
 
       const p = (txt) => ({
@@ -127,28 +131,50 @@
         "1 2 3 4 6 5 ... 1 3 4 2 7 5"
       )
 
-      const MyComp = {
+      const Comp1 = {
+        data() {
+          return { msg: "hello world" }
+        },
+        render() {
+          return p("comp1:" + this.msg)
+        },
+      }
+
+      render({
+        type: "div",
+        children: [{ type: Comp1 }],
+      })
+
+      const Hello = {
+        props: {
+          msg: {
+            type: String,
+          },
+        },
+        render() {
+          return p("hello:" + this.msg)
+        },
+      }
+      const Comp2 = {
         data() {
           return { msg: "hello world" }
         },
         created() {
-          window.tmp = this
+          window.comp2 = this
         },
         render() {
-          return p("my comp:" + this.msg)
+          return {
+            type: Hello,
+            props: {
+              msg: this.msg,
+            },
+          }
         },
       }
-
-      render(
-        {
-          type: "div",
-          children: [{ type: MyComp }],
-        },
-        {
-          type: "div",
-          children: [p("plain p")],
-        }
-      )
+      render({
+        type: "div",
+        children: [{ type: Comp2 }],
+      })
     </script>
   </body>
 </html>

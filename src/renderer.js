@@ -1,8 +1,8 @@
 import { lis } from "./utils.js"
-import { reactive, effect } from "./proxy.js"
+import { reactive, effect, shallowReactive } from "./proxy.js"
 
 // el.form 是只读的，只能通过 attribute 来设置
-function shouldSetAsProp(el, key, value) {
+function shouldSetAsProp(el, key) {
   if (key === "form" && el.tagName === "INPUT") return false
   return key in el
 }
@@ -64,7 +64,7 @@ const DOMApis = {
       }
     } else if (key === "class") {
       el.className = nextValue || ""
-    } else if (shouldSetAsProp(el, key, value)) {
+    } else if (shouldSetAsProp(el, key)) {
       const type = typeof el[key]
 
       if (type === "boolean" && nextValue === "") {
@@ -170,34 +170,60 @@ export function createRenderer(apis = DOMApis) {
       mounted,
       beforeUpdate,
       updated,
+      props: propOptions,
     } = componentOptions
 
     beforeCreate && beforeCreate()
 
     const state = reactive(data ? data() : {})
+    const { props, attrs } = resolveProps(propOptions, vnode.props)
 
     const instance = {
       state,
+      props: shallowReactive(props),
       isMounted: false,
       subTree: null,
     }
     vnode.component = instance
 
-    created && created.call(state)
+    const renderContext = new Proxy(instance, {
+      get(t, k, r) {
+        const { state, props } = t
+        if (state && k in state) {
+          return state[k]
+        } else if (k in props) {
+          return props[k]
+        } else {
+          console.error(`${k} does not exist`)
+        }
+      },
+      set(t, k, v, r) {
+        const { state, props } = t
+        if (state && k in state) {
+          state[k] = v
+        } else if (k in props) {
+          console.warn(`attempting to mutate prop "${k}", props are readonly.`)
+        } else {
+          console.error(`${k} does not exist`)
+        }
+      },
+    })
+
+    created && created.call(renderContext)
 
     effect(
       () => {
-        const subTree = render.call(state)
+        const subTree = render.call(renderContext)
 
         if (!instance.isMounted) {
-          beforeMount && beforeMount.call(state)
+          beforeMount && beforeMount.call(renderContext)
           patch(null, subTree, container, anchor)
           instance.isMounted = true
-          mounted && mounted.call(state)
+          mounted && mounted.call(renderContext)
         } else {
-          beforeUpdate && beforeUpdate.call(state)
+          beforeUpdate && beforeUpdate.call(renderContext)
           patch(instance.subTree, subTree, container, anchor)
-          updated && updated.call(state)
+          updated && updated.call(renderContext)
         }
 
         instance.subTree = subTree
@@ -207,6 +233,46 @@ export function createRenderer(apis = DOMApis) {
         scheduler: queueJob,
       }
     )
+  }
+  function patchComponent(n1, n2, anchor) {
+    const instance = (n2.component = n1.component)
+    const { props } = instance
+
+    if (hasPropsChanged(n1.props, n2.props)) {
+      const { props: nextProps } = resolveProps(n2.type.props, n2.props)
+      for (const k in nextProps) {
+        props[k] = nextProps[k]
+      }
+      for (const k in props) {
+        if (!(k in nextProps)) delete props[k]
+      }
+    }
+  }
+  function hasPropsChanged(prevProps, nextProps) {
+    const nextKeys = Object.keys(nextProps)
+
+    if (nextKeys.length !== Object.keys(prevProps).length) {
+      return true
+    }
+
+    for (const key of nextKeys) {
+      if (nextProps[key] !== prevProps[key]) return true
+    }
+
+    return true
+  }
+
+  function resolveProps(options, propsData) {
+    const props = {}
+    const attrs = {}
+    for (const key in propsData) {
+      if (key in options) {
+        props[key] = propsData[key]
+      } else {
+        attrs[key] = propsData[key]
+      }
+    }
+    return { props, attrs }
   }
 
   function patchElement(n1, n2) {
