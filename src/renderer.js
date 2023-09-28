@@ -97,6 +97,98 @@ export function onMounted(fn) {
     console.error(`onMounted can be only invoked in setup`)
   }
 }
+// TODO:
+export function onUnmounted(fn) {
+  if (currentInstance) {
+    currentInstance.unmounted.push(fn)
+  } else {
+    console.error(`onMounted can be only invoked in setup`)
+  }
+}
+
+export function defineAsyncCompoent(options) {
+  if (typeof options === "function") {
+    options = {
+      loader: options,
+    }
+  }
+
+  const { loader } = options
+
+  let InnerComp = null
+
+  return {
+    name: "AsyncComponentWrapper",
+    setup() {
+      const loaded = ref(false)
+      const error = shallowRef(null)
+      const loading = ref(false)
+
+      let loadingTimer = null
+      if (options.delay) {
+        loadingTimer = setTimeout(() => {
+          loading.value = true
+        }, options.delay)
+      } else {
+        loading.value = true
+      }
+
+      let retries = 0
+      function load() {
+        return loader().catch((err) => {
+          if (options.onError) {
+            return new Promise((resolve, reject) => {
+              const retry = () => {
+                resolve(load())
+                retries++
+              }
+              const fail = () => reject(err)
+              options.onError(retry, fail, retries)
+            })
+          } else {
+            throw err
+          }
+        })
+      }
+
+      load()
+        .then((c) => {
+          InnerComp = c
+          loaded.value = true
+        })
+        .catch((err) => (error.value = err))
+        .finally(() => {
+          loading.value = false
+          clearTimeout(loadingTimer)
+        })
+
+      let timer = null
+      if (options.timeout) {
+        timer = setTimeout(() => {
+          error.value = new Error(
+            `Async component timed out after ${options.timeout}ms`
+          )
+        }, options.timeout)
+      }
+
+      onUnmounted(() => clearTimeout(timer))
+
+      const placeholder = { type: Text, children: "" }
+
+      return () => {
+        if (loaded.value) {
+          return { type: InnerComp }
+        } else if (error.value && options.errorComponent) {
+          return { type: options.errorComponent, props: { error: error.value } }
+        } else if (loading.value && options.loadingComponent) {
+          return { type: options.loadingComponent }
+        } else {
+          return placeholder
+        }
+      }
+    },
+  }
+}
 
 export function createRenderer(apis = DOMApis) {
   const {
@@ -142,7 +234,7 @@ export function createRenderer(apis = DOMApis) {
       } else {
         patchChildren(n1, n2, container)
       }
-    } else if (typeof type === "object") {
+    } else if (typeof type === "object" || typeof type === "function") {
       if (!n1) {
         mountComponent(n2, container, anchor)
       } else {
@@ -172,7 +264,17 @@ export function createRenderer(apis = DOMApis) {
   }
 
   function mountComponent(vnode, container, anchor) {
-    const componentOptions = vnode.type
+    const isFunctional = typeof vnode.type === "function"
+
+    let componentOptions = vnode.type
+
+    if (isFunctional) {
+      componentOptions = {
+        render: vnode.type,
+        props: vnode.type.props,
+      }
+    }
+
     const {
       data,
       setup,
@@ -197,6 +299,7 @@ export function createRenderer(apis = DOMApis) {
       isMounted: false,
       subTree: null,
       mounted: [],
+      unmounted: [],
     }
     vnode.component = instance
 
@@ -292,7 +395,6 @@ export function createRenderer(apis = DOMApis) {
         }
 
         instance.subTree = subTree
-        vnode.el = subTree.el
       },
       {
         scheduler: queueJob,
@@ -439,6 +541,10 @@ export function createRenderer(apis = DOMApis) {
   function unmount(vnode) {
     if (vnode.type === Fragment) {
       vnode.children.forEach((c) => unmount(c))
+      return
+    } else if (typeof vnode.type === "object") {
+      // component
+      unmount(vnode.component.subTree)
       return
     }
 

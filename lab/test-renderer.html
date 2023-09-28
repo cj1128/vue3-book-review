@@ -131,19 +131,6 @@
         "1 2 3 4 6 5 ... 1 3 4 2 7 5"
       )
 
-      const Comp1 = {
-        data() {
-          return { msg: "hello world" }
-        },
-        render() {
-          return p("comp1:" + this.msg)
-        },
-      }
-      render({
-        type: "div",
-        children: [{ type: Comp1 }],
-      })
-
       const Hello = {
         props: {
           msg: {
@@ -154,6 +141,18 @@
           return p("hello:" + this.msg)
         },
       }
+
+      render(
+        {
+          type: "div",
+          children: [{ type: Hello, props: { msg: "hello 1" } }],
+        },
+        {
+          type: "div",
+          children: [p("plain p")],
+        }
+      )
+
       const Comp2 = {
         data() {
           return { msg: "world" }
@@ -195,6 +194,13 @@
       }
       render({
         type: Setup,
+      })
+
+      // function component
+      render({
+        type: () => {
+          return { type: "p", children: "function component" }
+        },
       })
     </script>
   </body>
