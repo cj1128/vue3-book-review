@@ -139,7 +139,6 @@
           return p("comp1:" + this.msg)
         },
       }
-
       render({
         type: "div",
         children: [{ type: Comp1 }],
@@ -157,23 +156,45 @@
       }
       const Comp2 = {
         data() {
-          return { msg: "hello world" }
+          return { msg: "world" }
         },
         created() {
           window.comp2 = this
         },
         render() {
           return {
-            type: Hello,
-            props: {
-              msg: this.msg,
-            },
+            type: "div",
+            children: [
+              p("comp2:"),
+              {
+                type: Hello,
+                props: {
+                  msg: this.msg,
+                },
+              },
+            ],
           }
         },
       }
       render({
         type: "div",
         children: [{ type: Comp2 }],
+      })
+
+      // setup
+      const Setup = {
+        setup() {
+          const val = ref("setup")
+          return function () {
+            return {
+              type: "p",
+              children: `hello ${val.value}`,
+            }
+          }
+        },
+      }
+      render({
+        type: Setup,
       })
     </script>
   </body>

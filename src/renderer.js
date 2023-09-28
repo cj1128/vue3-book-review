@@ -1,5 +1,5 @@
 import { lis } from "./utils.js"
-import { reactive, effect, shallowReactive } from "./proxy.js"
+import { reactive, effect, shallowReactive, shallowReadonly } from "./proxy.js"
 
 // el.form 是只读的，只能通过 attribute 来设置
 function shouldSetAsProp(el, key) {
@@ -86,6 +86,18 @@ function sameKey(n1, n2) {
   return n1?.key && n2?.key && n1.key === n2.key
 }
 
+let currentInstance = null
+function setCurrentInstance(ins) {
+  currentInstance = ins
+}
+export function onMounted(fn) {
+  if (currentInstance) {
+    currentInstance.mounted.push(fn)
+  } else {
+    console.error(`onMounted can be only invoked in setup`)
+  }
+}
+
 export function createRenderer(apis = DOMApis) {
   const {
     createElement,
@@ -162,8 +174,8 @@ export function createRenderer(apis = DOMApis) {
   function mountComponent(vnode, container, anchor) {
     const componentOptions = vnode.type
     const {
-      render,
       data,
+      setup,
       beforeCreate,
       created,
       beforeMount,
@@ -172,10 +184,11 @@ export function createRenderer(apis = DOMApis) {
       updated,
       props: propOptions,
     } = componentOptions
+    let { render } = componentOptions
 
     beforeCreate && beforeCreate()
 
-    const state = reactive(data ? data() : {})
+    const state = data ? reactive(data()) : null
     const { props, attrs } = resolveProps(propOptions, vnode.props)
 
     const instance = {
@@ -183,26 +196,76 @@ export function createRenderer(apis = DOMApis) {
       props: shallowReactive(props),
       isMounted: false,
       subTree: null,
+      mounted: [],
     }
     vnode.component = instance
+
+    function emit(event, ...payload) {
+      const eventName = `on${event[0].toUpperCase() + event.slice(1)}`
+      const handler = instance.props[eventName]
+      if (handler) {
+        handler(...payload)
+      } else {
+        console.error(`no handler found for "${eventName}"`)
+      }
+    }
+
+    let setupState = null
+    if (setup) {
+      setCurrentInstance(instance)
+      const setupContext = { attrs, emit }
+      const setupResult = setup(shallowReadonly(props), setupContext)
+      if (typeof setupResult === "function") {
+        if (render) {
+          console.error(
+            "setup renders a render function, 'render' option will be ignored"
+          )
+        }
+        render = setupResult
+      } else {
+        setupState = setupResult
+      }
+    }
 
     const renderContext = new Proxy(instance, {
       get(t, k, r) {
         const { state, props } = t
-        if (state && k in state) {
-          return state[k]
-        } else if (k in props) {
-          return props[k]
-        } else {
-          console.error(`${k} does not exist`)
+
+        const result = (function () {
+          if (state && k in state) {
+            return state[k]
+          } else if (k in props) {
+            return props[k]
+          } else if (setupState && k in setupState) {
+            return setupState[k]
+          } else {
+            console.error(`${k} does not exist`)
+          }
+        })()
+
+        if (result?.__v_isRef) {
+          return result.value
         }
+
+        return result
       },
       set(t, k, v, r) {
         const { state, props } = t
+
         if (state && k in state) {
-          state[k] = v
+          if (state[k]?.__v_isRef) {
+            state[k].value = v
+          } else {
+            state[k] = v
+          }
         } else if (k in props) {
           console.warn(`attempting to mutate prop "${k}", props are readonly.`)
+        } else if (setupState && k in setupState) {
+          if (setupState[k]?.__v_isRef) {
+            setupState[k].value = v
+          } else {
+            setupState[k] = v
+          }
         } else {
           console.error(`${k} does not exist`)
         }
@@ -220,6 +283,8 @@ export function createRenderer(apis = DOMApis) {
           patch(null, subTree, container, anchor)
           instance.isMounted = true
           mounted && mounted.call(renderContext)
+          instance.mounted &&
+            instance.mounted.forEach((fn) => fn.call(renderContext))
         } else {
           beforeUpdate && beforeUpdate.call(renderContext)
           patch(instance.subTree, subTree, container, anchor)
@@ -266,7 +331,7 @@ export function createRenderer(apis = DOMApis) {
     const props = {}
     const attrs = {}
     for (const key in propsData) {
-      if (key in options) {
+      if (key in options || key.startsWith("on")) {
         props[key] = propsData[key]
       } else {
         attrs[key] = propsData[key]
