@@ -86,7 +86,6 @@ function sameKey(n1, n2) {
   return n1?.key && n2?.key && n1.key === n2.key
 }
 
-let currentInstance = null
 function setCurrentInstance(ins) {
   currentInstance = ins
 }
@@ -190,6 +189,8 @@ export function defineAsyncCompoent(options) {
   }
 }
 
+let currentInstance = null
+
 export function createRenderer(apis = DOMApis) {
   const {
     createElement,
@@ -234,9 +235,26 @@ export function createRenderer(apis = DOMApis) {
       } else {
         patchChildren(n1, n2, container)
       }
+    } else if (typeof type === "object" && type.__isTeleport) {
+      type.process(n1, n2, container, anchor, {
+        patch,
+        patchChildren,
+        unmount,
+        move(vnode, container, anchor) {
+          insertBefore(
+            vnode.component ? vnode.component.subTree.el : vnode.el,
+            container,
+            anchor
+          )
+        },
+      })
     } else if (typeof type === "object" || typeof type === "function") {
       if (!n1) {
-        mountComponent(n2, container, anchor)
+        if (n2.keptAlive) {
+          n2.keepAliveInstance._activate(n2, container, anchor)
+        } else {
+          mountComponent(n2, container, anchor)
+        }
       } else {
         patchComponent(n1, n2, anchor)
       }
@@ -300,8 +318,20 @@ export function createRenderer(apis = DOMApis) {
       subTree: null,
       mounted: [],
       unmounted: [],
+      // 只有 KeepAlive 组件才有这个属性
+      keepAliveCtx: null,
     }
     vnode.component = instance
+
+    const isKeepAlive = vnode.type.__isKeepAlive
+    if (isKeepAlive) {
+      instance.keepAliveCtx = {
+        move(vnode, container, anchor) {
+          insertBefore(vnode.component.subTree.el, container, anchor)
+        },
+        createElement,
+      }
+    }
 
     function emit(event, ...payload) {
       const eventName = `on${event[0].toUpperCase() + event.slice(1)}`
@@ -544,7 +574,11 @@ export function createRenderer(apis = DOMApis) {
       return
     } else if (typeof vnode.type === "object") {
       // component
-      unmount(vnode.component.subTree)
+      if (vnode.shouldKeepAlive) {
+        vnode.keepAliveInstance._deActivate(vnode)
+      } else {
+        unmount(vnode.component.subTree)
+      }
       return
     }
 
@@ -831,4 +865,93 @@ export function createRenderer(apis = DOMApis) {
       }
     }
   }
+}
+
+const KeepAlive = {
+  __isKeepAlive: true,
+  setup(props, { slots }) {
+    // key: vnode.type, value: vnode
+    const cache = new Map()
+    const instance = currentInstance
+
+    // keepAliveCtx 由 renderer 注入
+    const { move, createElement } = instance.keepAliveCtx
+
+    const storageContianer = createElement("div")
+
+    // 提供两个函数给 renderer 使用
+    instance._deActivate = (vnode) => {
+      move(vnode, storageContianer)
+    }
+    instance._activate = (vnode, container, anchor) => {
+      move(vnode, container, anchor)
+    }
+
+    return () => {
+      let rawVNode = slots.default()
+
+      // 非组件节点无法被 keep-alive
+      if (typeof rawVNode.type !== "object") {
+        return rawVNode
+      }
+
+      const cachedVNode = cache.get(rawVNode.type)
+      if (cachedVNode) {
+        rawVNode.component = cachedVNode.component
+        rawVNode.keptAlive = true
+      } else {
+        cache.set(rawVNode.type, rawVNode)
+      }
+
+      rawVNode.shouldKeepAlive = true
+      rawVNode.keepAliveInstance = instance
+
+      return rawVNode
+    }
+  },
+}
+
+const Teleport = {
+  __isTeleport: true,
+  process(n1, n2, container, anchor, internals) {
+    const { patch, patchChildren } = internals
+
+    // 挂载
+    if (!n1) {
+      const target =
+        typeof n2.props.to === "string"
+          ? document.querySelector(n2.props.to)
+          : n2.props.to
+
+      n2.children.forEach((c) => patch(null, c, target, anchor))
+    } else {
+      // 更新
+      patchChildren(n1, n2, container)
+
+      if (n2.props.to !== n1.props.to) {
+        const newTarget =
+          typeof n2.props.to === "string"
+            ? document.querySelector(n2.props.to)
+            : n2.props.to
+        n2.children.forEach((c) => move(c, newTarget))
+      }
+    }
+  },
+}
+
+const Transition = {
+  name: "Transition",
+  setup(props, { slots }) {
+    const innerVNode = slots.default()
+
+    innerVNode.transition = {
+      beforeEnter() {},
+
+      enter() {},
+
+      leave() {},
+    }
+
+    return innerVNode
+  },
 }

@@ -13,6 +13,7 @@
 - [Chapter 11: 快速 Diff 算法](#chapter-11-快速-diff-算法)
 - [Chapter 12: 组件的实现原理](#chapter-12-组件的实现原理)
 - [Chapter 13: 异步组件与函数式组件](#chapter-13-异步组件与函数式组件)
+- [Chapter 14: 内建组件和模块](#chapter-14-内建组件和模块)
 
 ## Chapter 1: 权衡的艺术
 
@@ -489,6 +490,7 @@
   - 发射自定义事件的本质就是根据事件名称去 props 中寻找对应的事件处理函数并执行
 - 插槽的原理与实现
   - Vue3 中所有的插槽都是 scoped slot，也就是一个 function，不再支持 Vue2 的那种 VNode 形式的插槽
+  - 组件的子节点会被编译为插槽
 - setup 注册生命周期
   - 调用统一的 `onMounted` 函数来注册
   - 实现 onMounted 需要维护一个 currentInstance 变量
@@ -510,3 +512,19 @@
     - 没有状态
     - 没有生命周期
   - Vue3 中，函数式组件和普通组件的性能区别并不大，使用函数式组件的主要目的是因为它的简单性
+
+## Chapter 14: 内建组件和模块
+
+- 三个重要的内建组件: `KeepAlive`, `Teleport`, `Transition`
+- `KeepAlive`
+  - KeepAlive 可以避免一个组件被频繁地销毁/重建
+  - 实现本质：缓存管理 + 特殊的挂载/卸载逻辑
+  - 卸载时，不是真的卸载，而是搬运到一个隐藏容器
+  - 挂载时，从隐藏容器再搬运到原容器
+- `Teleport`
+  - 解决的问题：将内容渲染到特定容器中，不受 DOM 层级的限vue制
+  - 通常，组件的子节点会被编译为插槽，但是对于 Teleport 的子节点来说，编译为 children 数组就够用了
+- `Transition`
+  - DOM 元素挂载时，添加动效到 DOM 元素上
+  - DOM 元素卸载时，不要立即卸载，等动效执行完成以后再卸载
+  - Transition 组件的子节点被编译为插槽
