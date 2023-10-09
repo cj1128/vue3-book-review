@@ -14,6 +14,7 @@
 - [Chapter 12: 组件的实现原理](#chapter-12-组件的实现原理)
 - [Chapter 13: 异步组件与函数式组件](#chapter-13-异步组件与函数式组件)
 - [Chapter 14: 内建组件和模块](#chapter-14-内建组件和模块)
+- [Chapter 15: 编译器核心技术](#chapter-15-编译器核心技术)
 
 ## Chapter 1: 权衡的艺术
 
@@ -528,3 +529,18 @@
   - DOM 元素挂载时，添加动效到 DOM 元素上
   - DOM 元素卸载时，不要立即卸载，等动效执行完成以后再卸载
   - Transition 组件的子节点被编译为插槽
+
+## Chapter 15: 编译器核心技术
+
+- Vue 模板编译一共分为三个部分
+  - `parser` -> `transformer` -> `generator`
+  - `parse` 函数接受模板字符串，返回 TemplateAST
+  - 有了 模板 AST 以后，就可以进行语义分析
+    - `v-else` 指令是否有对应的 `v-if`
+    - 属性值是否是静态的，是否是常量
+    - ...
+  - `transform` 函数将 templateAST -> jsAST
+  - `generate` 函数 jsAST -> render code
+- AST 遍历的 “进入与退出”
+  - 深度优先遍历存在一个问题，根节点第一个被处理，节点层次越深，对它的处理越靠后。意味着当一个节点被处理时，它的父节点已经被处理完毕了，我们无法回过头来重新处理父节点。
+  - 通过 `exitFns` 数组增加退出阶段，这样对节点的处理分为两个节点，进入和退出，类似于事件的 capturing 和 bubbling
