@@ -1,5 +1,11 @@
 # Vue3 Book Review
 
+[Vue.js设计与实现](https://www.ituring.com.cn/book/2953) 读书笔记与摘录。
+
+这本书非常棒，推荐所有对 Vue 以及现代前端框架感兴趣的朋友们阅读。
+
+书中有一些小错误，作者没有提供完整的勘误表，大家可以去 [Issues](https://github.com/HcySunYang/vue-design/issues) 中搜索。
+
 - [Chapter 1: 权衡的艺术](#chapter-1-权衡的艺术)
 - [Chapter 2: 框架设计的核心要素](#chapter-2-框架设计的核心要素)
 - [Chapter 3: Vue3 的设计思路](#chapter-3-vue3-的设计思路)
@@ -57,11 +63,11 @@
     ```
   - 使用 `rollup main.js -f esm -o bundle.js` 进行打包，会发现，首先 `bar` 一定会被 treeShake 掉，但是 `abc` 是否会被 treeShake 掉取决于是否添加了 `/* #__PRUE__ */` 的注释。
 
-- > 使用TS编写代码与对TS类型支持友好是两件事。
+- > 使用 T S编写代码与对 TS 类型支持友好是两件事。
 
 ## Chapter 3: Vue3 的设计思路
 
-- > 渲染器的作用就是把虚拟 DOM 渲染成真实 DOM
+> 渲染器的作用就是把虚拟 DOM 渲染成真实 DOM
 
 ## Chapter 4: 响应系统的作用与实现
 
